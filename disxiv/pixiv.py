@@ -108,12 +108,25 @@ class Pixiv:
         
         # pic_id = picked_pic['id']
         pic_url_medium = picked_pic['image_urls']['square_medium']
+        print('picked picture:')
+        pprint.pprint(picked_pic)
 
         return pic_url_medium
 
-    async def download_by_url(self, url):
-        name = str(datetime.now()) + '.jpg'
-        await self._aapi.download(url, path='pictures', name=name)
+    async def download_by_url(self, url) -> str:
+        '''
+        returns path to downloaded picture
+        '''
+        name = str(datetime.now())
+        await self._aapi.download(url, path='pictures', fname=name)
+        fname = name.split('.')[0] + '.webp'
+        return 'pictures/' + fname
+
+    async def get_picture(self, keyword):
+        url = await self.get_url(keyword)
+        filename = await self.download_by_url(url)
+        return filename
+
 
     async def _login(self):
         return await self._aapi.login(refresh_token=self._refresh_token)
