@@ -31,9 +31,13 @@ class Pixiv:
         # as the operation to get one is long and heavy
         token = None
         async with aiofiles.open(self._token_filename, 'r') as f:
-            contents = await f.read()
-            for line in contents:
-                name, val = line.split('=')
+            content = await f.read()
+            lines = content.split('\n')
+            for line in lines:
+                name_val = line.split('=')
+                if len(name_val) != 2:
+                    continue
+                name, val = name_val
                 if name == 'PIXIV_REFRESH_TOKEN':
                     token = val
         if token:
