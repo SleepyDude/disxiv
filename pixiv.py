@@ -1,11 +1,16 @@
 import aiofiles
 import asyncio
+
 from gppt import GetPixivToken
+from pixivpy_async import AppPixivAPI
 
 import os
 from dotenv import load_dotenv
+from datetime import datetime
 
 from functools import partial
+
+import pprint
 
 
 class Pixiv:
@@ -19,6 +24,7 @@ class Pixiv:
         self._refresh_token = None
         self._token_getter = GetPixivToken()
         self._login_user_id = None
+        self._aapi = AppPixivAPI()
 
     async def _get_token_cached(self):
         '''
@@ -77,18 +83,74 @@ class Pixiv:
         print('user id:', user_id)
 
         # updating cache
-        self._refresh_token = refresh_token
-        self._login_user_id = user_id
-        async with aiofiles.open(self._token_filename, 'w') as f:
-            await f.write(f'PIXIV_REFRESH_TOKEN={self._refresh_token}\n')
-            await f.write(f'PIXIV_USER_ID={self._login_user_id}\n')
+        await self.set_refresh_token(refresh_token)
 
         return refresh_token
 
+    async def set_refresh_token(self, token):
+        self._refresh_token = token
+        async with aiofiles.open(self._token_filename, 'w') as f:
+            await f.write(f'PIXIV_REFRESH_TOKEN={self._refresh_token}\n')
+    
+    async def get_url(self, text) -> str:
+        response = await self._aapi.search_illust(word=text)
+        illustrations = response['illusts']
+        print(f'found {len(illustrations)} illustrations')
+        # let's get first not R-18 illustration
+        picked_pic = None
+        for illustration in illustrations:
+            if illustration['x_restrict'] == 0:
+                picked_pic = illustration
+                break
+        if not picked_pic:
+            print(f"Can't find picture with '{text} keyword'")
+            return None
+        
+        # pic_id = picked_pic['id']
+        pic_url_medium = picked_pic['image_urls']['square_medium']
+
+        return pic_url_medium
+
+    async def download_by_url(self, url):
+        name = str(datetime.now()) + '.jpg'
+        await self._aapi.download(url, path='pictures', name=name)
+
+    async def _login(self):
+        return await self._aapi.login(refresh_token=self._refresh_token)
+
+    async def update_token(self):
+        loop = asyncio.get_event_loop()
+        print('start refreshing refresh token')
+        try:
+            res = await loop.run_in_executor(None, partial(
+                    self._token_getter.refresh,
+                    self._refresh_token
+                )
+            )
+        except Exception as e:
+            print('ERROR: Get refresh token fail. Reason:\n', e)
+            return None
+        print(res)
+        new_refresh_token = res['refresh_token']
+        await self.set_refresh_token(new_refresh_token)
+        
 
 async def _main(pixiv: Pixiv):
     token = await pixiv._get_token_cached()
-    print(token)
+    try:
+        resp_from_login = await pixiv._login()
+    except Exception as e:
+        # probably the token is not valid anymore
+        print('probably token is not a valid anymore\n', e)
+        pixiv.update_token()
+        # try again
+        print('second try to login')
+        resp_from_login = await pixiv._login()
+
+    pprint.pprint('response from login:', resp_from_login)
+    url = await pixiv.get_url('arknights')
+    await pixiv.download_by_url(url)
+
 
 if __name__ == '__main__':
     load_dotenv()
